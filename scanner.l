@@ -132,18 +132,21 @@ Invalid_int 0[0-9]+|0[xX][0-9a-fA-F]+
 	strncpy(tempstring,yytext+1,strlen(yytext)-2);
 	tempstring[strlen(yytext)-2]='\0';
 	PrintToken("#string");
+	yylval.textval=yytext;
 	return STR;
 }
 
 <STATE>{chars} {
 	strcpy(tempstring,yytext);
 	PrintToken("#char");
+	yylval.textval=yytext;
 	return CHA;
 }
 
 <STATE>{key} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	if(strcmp(yytext,"const")==0)
 		return CONS;
 	if(strcmp(yytext,"void")==0)
@@ -177,48 +180,57 @@ Invalid_int 0[0-9]+|0[xX][0-9a-fA-F]+
 <STATE>{stdio} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	return ID;
 }
 <STATE>{stdfile} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	return ID;
 }
 <STATE>{stdchio} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	return ID;
 }
 <STATE>{stdblio} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	return ID;
 }
 <STATE>{stdfilepos} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	return ID;
 }
 <STATE>{stderror} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	return ID;
 }
 <STATE>{type} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	if(strcmp(yytext,"struct")!=0)
 		return TYPE;
 }
 <STATE>{logic} { 
 	strcpy(tempstring,yytext);
 	PrintToken("#key");
+	yylval.textval=yytext;
 	return TF;
 }
 
 <STATE>{double_operator} {
 	strcpy(tempstring,yytext);
 	PrintToken("#op");
+	yylval.textval=yytext;
 	if(strcmp(yytext,"||")==0)
 	 return LOR;
 	if(strcmp(yytext,"&&")==0)
@@ -240,7 +252,7 @@ Invalid_int 0[0-9]+|0[xX][0-9a-fA-F]+
 <STATE>{single_operator} {
 	strcpy(tempstring,yytext);
 	PrintToken("#op");
-
+	yylval.textval=yytext;
 	if(strcmp(yytext,"=")==0)
 	 return '=';
 	if(strcmp(yytext,"+")==0)
@@ -265,6 +277,7 @@ Invalid_int 0[0-9]+|0[xX][0-9a-fA-F]+
 <STATE>{punctuation} {
 	strcpy(tempstring,yytext);
 	PrintToken("#punc");
+	yylval.textval = yytext;
 	if(strcmp(yytext,";")==0)
 		return ';';
 	if(strcmp(yytext,",")==0)
@@ -290,6 +303,7 @@ Invalid_int 0[0-9]+|0[xX][0-9a-fA-F]+
 <STATE>{id} {
 	strcpy(tempstring,yytext);
 	PrintToken("#id");
+	yylval.textval = yytext;
 	return ID;
 }
 
@@ -305,12 +319,14 @@ Invalid_int 0[0-9]+|0[xX][0-9a-fA-F]+
 <STATE>{sci} {
 	strcpy(tempstring,yytext);
 	PrintToken("#sci");
+	yylval.doubleval = atof(yytext);
 	return DOU;
 }
 
 <STATE>{Double} {
 	strcpy(tempstring,yytext);
 	PrintToken("#double");
+	yylval.doubleval = atof(yytext);
 	return DOU;
 }
 <STATE>{Invalid_int} {
@@ -321,6 +337,7 @@ Invalid_int 0[0-9]+|0[xX][0-9a-fA-F]+
 <STATE>{Int} {
 	strcpy(tempstring,yytext);
 	PrintToken("#integer");
+	yylval.intval = atoi(yytext);
 	return IN;
 }
 
