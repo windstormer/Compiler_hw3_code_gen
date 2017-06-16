@@ -2,11 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "symboltable.h"
 
 extern int lineCount;
 extern char lastsentence[3000];
 extern char* yytext;
 
+SymbolEntry ST[MAX_ST_SIZE];
+int curST_size=0;
+int var_offset=0;
+int cur_scope=0;
 %}
 %start program
 
@@ -77,8 +82,8 @@ high_low: HIGH
         ;
 
 //////////use//////////////////////
-function_use: TYPE ID '(' para ')'
-            | VOI ID '(' para ')'
+function_use: TYPE ID '(' para ')' {cur_scope++;}
+            | VOI ID '(' para ')' {cur_scope--;}
             ;
 
 normal_use: ID '=' expression 
@@ -146,8 +151,8 @@ normal_init: '=' init_expression
 //         | 
 //         ;  
 ///////////////Value select//////////////   
-NUM: IN {$$=$1;}
-   | DOU {$$=$1;}
+NUM: IN 
+   | DOU 
    | TF
    | CHA
    | STR
@@ -175,7 +180,7 @@ UNUM: '-' INT_DOUBLE_ID %prec unary { $$ = -$2; }
 //                   | expression
 //                   ;  
 
-expression: expression '+' expression { $$=$1 + $3; }
+expression: expression '+' expression 
           | expression '-' expression { $$=$1 - $3; }
           | expression '*' expression { $$=$1 * $3; }
           | expression '/' expression { $$=$1 / $3; }
@@ -187,7 +192,7 @@ expression: expression '+' expression { $$=$1 + $3; }
           | expression LAND expression 
           | '(' expression ')' { $$=$2; }
           | ID
-          | UNUM {$$=$1;}
+          | UNUM
           | '!' expression 
           // | ID Arr_use
           // | func_invocation
@@ -224,4 +229,46 @@ int yyerror(char *s){
 	fprintf( stderr, "Unmatched token: %s\n", yytext );
 	fprintf( stderr, "*** syntax error\n");
 	exit(-1);
+}
+int findST(char* id)
+{
+  int i=0;
+  for(i=0;i<curST_size;i++)
+  {
+    if(strcmp(id,ST[i].id)==0)
+    {
+      return ST[i].offset;
+    }
+  }
+}
+
+SymbolEntry findnewSTEntry()
+{
+  if(curST_size==MAX_ST_SIZE)
+    {
+      yyerror("ST is full!");
+    }
+  curST_size++;
+  var_offset-=4;
+  return ST[curST_size-1];
+}
+void addINFO(char* id,int offset,int scope,int value,int type,int var_type){
+  SymbolEntry se = findnewSTEntry();
+  se.id = id;
+  se.offset = offset;
+  se.scope = scope;
+  se.value = value;
+  se.type = type;
+  se.var_type = var_type;
+}
+void cleanSTEntry(int index)
+{
+  SymbolEntry se = ST[curST_size];
+  se.id[0]='\0';
+  se.offset=0;
+  se.scope=0;
+  se.value=0;
+  se.type=0;
+  se.var_type=0;
+  curST_size--;
 }
