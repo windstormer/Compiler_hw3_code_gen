@@ -8,21 +8,18 @@ extern int lineCount;
 extern char lastsentence[3000];
 extern char* yytext;
 
-SymbolEntry ST[MAX_ST_SIZE];
-int curST_size=0;
-int var_offset=0;
-int cur_scope=0;
+
 %}
 %start program
 
 %union {
   int intval;
   double doubleval;
-  char* textval;
+  char textval[2048];
 }
 
 %token <textval> ID TYPE CHAR_TYPE
-%token <doubleval> DOU
+%token <intval> DOU
 %token <textval> TF CHA STR NUL
 %token <intval> IN
 %token ENDLINE
@@ -46,7 +43,7 @@ int cur_scope=0;
 %left DP DM
 %left '[' ']'
 
-%type <doubleval> expression INT_DOUBLE_ID NUM UNUM init_expression
+// %type <intval> INT_DOUBLE_ID
 
 %%
 program: global program
@@ -68,17 +65,28 @@ local: declaration ';'
      | normal_use ';'
      | digwrite ';'
      | delay ';'
-     | RETURN expression ';'
+     | RETURN expression ';' {popstack("$r0");}
+     | left_c local_S right_c
      ;
 
+left_c: '{' {cur_scope++;}
+      ;
+right_c: '}' {cur_scope--;}
+       ;
 ///////////////for hw3/////////////////
-digwrite: DIGWRITE '(' IN ',' high_low ')'
+digwrite: DIGWRITE '(' IN ',' high_low ')' {
+                                              fprintf(as, "movi $r0, %d\n",$3 );
+                                              fprintf(as,"bal digitalWrite\n");
+                                           }
         ;
-delay: DELAY '(' INT_DOUBLE_ID ')'
+delay: DELAY '(' INT_DOUBLE_ID ')' {
+                                      popstack("$r0");
+                                      fprintf(as,"bal delay\n");
+                                   }
      ;
 
-high_low: HIGH
-        | LOW
+high_low: HIGH {fprintf(as, "movi $r1, 1\n");}
+        | LOW {fprintf(as, "movi $r1, 0\n");}
         ;
 
 //////////use//////////////////////
@@ -86,9 +94,12 @@ function_use: TYPE ID '(' para ')' {cur_scope++;}
             | VOI ID '(' para ')' {cur_scope--;}
             ;
 
-normal_use: ID '=' expression 
+normal_use: ID '=' expression { 
+                                popstack("$r0");
+                                fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1)); 
+                              }
           // | ID Arr_use '=' expression
-          | expression {printf("ans = %f\n",$1);}
+          | expression
           ;
 
 ///////declaration///////////////////////
@@ -101,7 +112,18 @@ lots_of_ID_declaration: ID_declaration ',' lots_of_ID_declaration
                       | ID_declaration
                       ;
 
-ID_declaration: ID normal_init
+ID_declaration: ID {
+                    fprintf(as,"addi $sp,$sp,-4\n");
+                    addvarINFO($1,var_offset,cur_scope,VAR_TYPE,INT);
+                   }
+              | ID '=' init_expression {
+                                          // fprintf(as,"ID=%s\n",$1);
+                                        addvarINFO($1,var_offset,cur_scope,VAR_TYPE,INT);
+                                        popstack("$r0");
+                                        fprintf(as,"addi $sp,$sp,-4\n");
+                                        fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1));
+                                         
+                                       }
               // | ID Arr_declare Arr_init
               | func_declar
               ;
@@ -135,9 +157,6 @@ para_style: TYPE ID
           ;
 
 ////////////////////////////////////
-normal_init: '=' init_expression
-           |
-           ;
 
 // Arr_use: '[' expression ']'
 //        | Arr_use '[' expression ']'
@@ -151,23 +170,25 @@ normal_init: '=' init_expression
 //         | 
 //         ;  
 ///////////////Value select//////////////   
-NUM: IN 
-   | DOU 
-   | TF
-   | CHA
-   | STR
-   | NUL
+NUM: IN {pushtostack($1);}
+   // | DOU 
+   // | TF
+   // | CHA
+   // | STR
+   // | NUL
    ;
 
-INT_DOUBLE_ID: IN
-          | DOU
-          | ID
+INT_DOUBLE_ID: IN {
+                    fprintf(as, "movi r0, %d\n",$1 );
+                    pushstack("$r0");
+                  }
+          // | DOU
+          | ID {                  
+                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1));
+                  pushstack("$r0");
+                }
           ;
 
-UNUM: '-' INT_DOUBLE_ID %prec unary { $$ = -$2; }
-    | '+' INT_DOUBLE_ID %prec unary { $$ = $2; }
-    | NUM {$$=$1;}
-    ;
 // int_char: IN
 //         | CHA
 //         ;
@@ -180,44 +201,54 @@ UNUM: '-' INT_DOUBLE_ID %prec unary { $$ = -$2; }
 //                   | expression
 //                   ;  
 
-expression: expression '+' expression 
-          | expression '-' expression { $$=$1 - $3; }
-          | expression '*' expression { $$=$1 * $3; }
-          | expression '/' expression { $$=$1 / $3; }
-          | expression '%' expression 
-          | ID DP 
-          | ID DM
-          | expression COMP expression
-          | expression LOR expression 
-          | expression LAND expression 
-          | '(' expression ')' { $$=$2; }
-          | ID
-          | UNUM
-          | '!' expression 
+expression: expression '+' expression { doexpression('+'); }
+          | expression '-' expression { doexpression('-'); }
+          | expression '*' expression { doexpression('*'); }
+          | expression '/' expression { doexpression('/'); }
+          | expression '%' expression { doexpression('%'); }
+          // | ID DP 
+          // | ID DM
+          // | expression COMP expression {doexpression($2);}
+          // | expression LOR expression {doexpression($2);}
+          // | expression LAND expression {doexpression($2);}
+          | '(' expression ')'
+          | ID {
+                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1));
+                  pushstack("$r0");
+               }
+          | NUM 
+          | '-' expression %prec unary
+          // | '!' expression 
           // | ID Arr_use
           // | func_invocation
           ;
 
-init_expression: init_expression '+' init_expression { $$=$1 + $3; }
-          | init_expression '-' init_expression { $$=$1 - $3; }
-          | init_expression '*' init_expression { $$=$1 * $3; }
-          | init_expression '/' init_expression { $$=$1 / $3; }
-          | init_expression '%' init_expression
-          | ID DP
-          | ID DM
-          | init_expression COMP init_expression
-          | init_expression LOR init_expression
-          | init_expression LAND init_expression
-          | '(' init_expression ')' {$$=$2;}
-          | ID
-          | UNUM {$$=$1;}
-          | '!' init_expression
+init_expression: init_expression '+' init_expression {doexpression('+');}
+          | init_expression '-' init_expression {doexpression('-');}
+          | init_expression '*' init_expression {doexpression('*');}
+          | init_expression '/' init_expression {doexpression('/');}
+          | init_expression '%' init_expression {doexpression('%');}
+          // | ID DP
+          // | ID DM
+          // | init_expression COMP init_expression {doexpression($2);}
+          // | init_expression LOR init_expression {doexpression($2);}
+          // | init_expression LAND init_expression {doexpression($2);}
+          | '(' init_expression ')'
+          | ID {
+                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1));
+                  pushstack("$r0");
+               }
+          | NUM 
+          | '-' expression %prec unary
+          // | '!' init_expression
           // | ID Arr_use
           ;
 
 %%
 int main(void){
+  as = fopen("assembly","w+");
 	yyparse();
+  fclose(as);
   fprintf(stdout,"No syntax error!\n");
 	return 0;
 }
@@ -230,45 +261,38 @@ int yyerror(char *s){
 	fprintf( stderr, "*** syntax error\n");
 	exit(-1);
 }
-int findST(char* id)
+
+void doexpression(char op)
 {
-  int i=0;
-  for(i=0;i<curST_size;i++)
+  popstack("$r1");
+  popstack("$r0");
+  if(op=='+')
   {
-    if(strcmp(id,ST[i].id)==0)
-    {
-      return ST[i].offset;
-    }
+    fprintf(as,"add $r0,$r0,$r1\n");
+    pushstack("$r0");
+  }else if(op=='-')
+  {
+    fprintf(as,"sub $r0,$r0,$r1\n");
+    pushstack("$r0");
+  }else if(op=='*')
+  {
+    fprintf(as,"mul $r0,$r0,$r1\n");
+    pushstack("$r0");
+  }else if(op=='/')
+  {
+    fprintf(as,"divsr $r0,$r2,$r0,$r1\n");
+    pushstack("$r0");
+  }else if(op=='%')
+  {
+    fprintf(as,"divsr $r0,$r2,$r0,$r1\n");
+    pushstack("$r2");
   }
+    
 }
 
-SymbolEntry findnewSTEntry()
+void pushtostack(int input)
 {
-  if(curST_size==MAX_ST_SIZE)
-    {
-      yyerror("ST is full!");
-    }
-  curST_size++;
-  var_offset-=4;
-  return ST[curST_size-1];
+  fprintf(as,"movi $r0, %d\n",input);
+  pushstack("$r0");
 }
-void addINFO(char* id,int offset,int scope,int value,int type,int var_type){
-  SymbolEntry se = findnewSTEntry();
-  se.id = id;
-  se.offset = offset;
-  se.scope = scope;
-  se.value = value;
-  se.type = type;
-  se.var_type = var_type;
-}
-void cleanSTEntry(int index)
-{
-  SymbolEntry se = ST[curST_size];
-  se.id[0]='\0';
-  se.offset=0;
-  se.scope=0;
-  se.value=0;
-  se.type=0;
-  se.var_type=0;
-  curST_size--;
-}
+
