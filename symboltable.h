@@ -69,6 +69,21 @@ void cleanSTEntry(int index)
   curST_size--;
 }
 
+int cleanscopeSTEntry(int scope)
+{
+	int i=0;
+	int count=0;
+	for(i=curST_size-1;i>=0;i--)
+	{
+		if(ST[i].scope==scope)
+		{
+			count++;
+			cleanSTEntry(i);
+		}
+	}
+	return count;
+}
+
 void pushstack(char * target)
 {
 	fprintf(as,"addi $sp,$sp,-4\n");

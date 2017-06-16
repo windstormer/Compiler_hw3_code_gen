@@ -7,7 +7,7 @@
 extern int lineCount;
 extern char lastsentence[3000];
 extern char* yytext;
-
+int labelcount=0;
 
 %}
 %start program
@@ -67,11 +67,37 @@ local: declaration ';'
      | delay ';'
      | RETURN expression ';' {popstack("$r0");}
      | left_c local_S right_c
+     | IF '(' expression ')' left_c local_S right_c {
+                                                      fprintf(as,".L%d:\n",labelcount);
+                                                      labelcount++;
+                                                    }
+     | IF '(' expression ')' left_c local_S if_right_c ELSE left_c local_S right_c {
+                                                                                      fprintf(as,".L%d:\n",labelcount+1);
+                                                                                      labelcount+=2;
+                                                                                   }
+     | WHILE '(' expression ')' while_left_c local_S right_c {
+                                                              fprintf(as,"j .L%d\n", labelcount+1);
+                                                              fprintf(as,".L%d:\n", labelcount);
+                                                              labelcount+=2;
+                                                             }
      ;
-
+while_left_c: '{' {cur_scope++; fprintf(as,".L%d:\n", labelcount+1);} 
+            ;
+if_right_c: '}' {
+                  int count=cleanscopeSTEntry(cur_scope);
+                  fprintf(as,"addi $sp,$sp,%d\n", 4*count);
+                  cur_scope--;
+                  fprintf(as,"j .L%d\n",labelcount+1);
+                  fprintf(as,".L%d:\n",labelcount);
+                }
+          ;
 left_c: '{' {cur_scope++;}
       ;
-right_c: '}' {cur_scope--;}
+right_c: '}' {    
+                  int count=cleanscopeSTEntry(cur_scope);
+                  fprintf(as,"addi $sp,$sp,%d\n", 4*count);
+                  cur_scope--;
+             }
        ;
 ///////////////for hw3/////////////////
 digwrite: DIGWRITE '(' IN ',' high_low ')' {
@@ -208,7 +234,7 @@ expression: expression '+' expression { doexpression('+'); }
           | expression '%' expression { doexpression('%'); }
           // | ID DP 
           // | ID DM
-          // | expression COMP expression {doexpression($2);}
+          | expression COMP expression {docomparation($2);}
           // | expression LOR expression {doexpression($2);}
           // | expression LAND expression {doexpression($2);}
           | '(' expression ')'
@@ -218,7 +244,10 @@ expression: expression '+' expression { doexpression('+'); }
                }
           | NUM 
           | '-' expression %prec unary
-          // | '!' expression 
+          | '!' expression {
+                              popstack("$r0");
+                              fprintf(as,"bnez $r0, .L%d\n", labelcount);
+                           }
           // | ID Arr_use
           // | func_invocation
           ;
@@ -230,7 +259,7 @@ init_expression: init_expression '+' init_expression {doexpression('+');}
           | init_expression '%' init_expression {doexpression('%');}
           // | ID DP
           // | ID DM
-          // | init_expression COMP init_expression {doexpression($2);}
+          // | init_expression COMP init_expression {docomparation($2);}
           // | init_expression LOR init_expression {doexpression($2);}
           // | init_expression LAND init_expression {doexpression($2);}
           | '(' init_expression ')'
@@ -296,3 +325,31 @@ void pushtostack(int input)
   pushstack("$r0");
 }
 
+void docomparation(char* comp)
+{
+  popstack("$r1");
+  popstack("$r0");
+  if(strcmp(comp,">=")==0)
+  {
+    fprintf(as,"slts $ta,$r0,$r1\n");
+    fprintf(as,"bnez $ta, .L%d\n",labelcount);
+  }else if(strcmp(comp,">")==0)
+  {
+    fprintf(as,"slts $ta,$r1,$r0\n");
+    fprintf(as,"beqz $ta, .L%d\n",labelcount);
+  }else if(strcmp(comp,"<=")==0)
+  {
+    fprintf(as,"slts $ta,$r1,$r0\n");
+    fprintf(as,"bnez $ta, .L%d\n",labelcount);
+  }else if(strcmp(comp,"<")==0)
+  {
+    fprintf(as,"slts $ta,$r0,$r1\n");
+    fprintf(as,"beqz $ta, .L%d\n",labelcount);
+  }else if(strcmp(comp,"==")==0)
+  {
+    fprintf(as,"bne $r0, $r1, .L%d\n",labelcount);
+  }else if(strcmp(comp,"!=")==0)
+  {
+    fprintf(as,"beq $r0, $r1, .L%d\n",labelcount);
+  }
+}
