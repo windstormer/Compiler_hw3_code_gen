@@ -24,19 +24,24 @@ int var_offset=0;
 int cur_scope=1;
 FILE *as;
 
-int findST(char* id)
+int findST(char* id,int scope)
 {
   int i=0;
-
+  int min=1000,offset=0;
   for(i=0;i<curST_size;i++)
   {
   	    	 // fprintf(as,"check:%s,%s\n",id,ST[i].id);
-    if(strcmp(id,ST[i].id)==0)
+    if(strcmp(id,ST[i].id)==0&&scope>=ST[i].scope)
     {
     	// fprintf(as,"check:%d\n",ST[i].offset);
-      return ST[i].offset;
+    	if(scope<min) 
+    		{
+    			min = scope;
+    			offset = ST[i].offset;
+    		}
     }
   }
+  return offset;
 }
 
 SymbolEntry* findnewSTEntry()

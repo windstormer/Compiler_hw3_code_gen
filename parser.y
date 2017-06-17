@@ -75,13 +75,13 @@ local: declaration ';'
                                                                                       fprintf(as,".L%d:\n",labelcount+1);
                                                                                       labelcount+=2;
                                                                                    }
-     | WHILE '(' expression ')' while_left_c local_S right_c {
+     | WHILE while_left_c expression ')' left_c local_S right_c {
                                                               fprintf(as,"j .L%d\n", labelcount+1);
                                                               fprintf(as,".L%d:\n", labelcount);
                                                               labelcount+=2;
                                                              }
      ;
-while_left_c: '{' {cur_scope++; fprintf(as,".L%d:\n", labelcount+1);} 
+while_left_c: '(' {fprintf(as,".L%d:\n", labelcount+1); } 
             ;
 if_right_c: '}' {
                   int count=cleanscopeSTEntry(cur_scope);
@@ -122,7 +122,7 @@ function_use: TYPE ID '(' para ')' {cur_scope++;}
 
 normal_use: ID '=' expression { 
                                 popstack("$r0");
-                                fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1)); 
+                                fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1,cur_scope)); 
                               }
           // | ID Arr_use '=' expression
           | expression
@@ -147,7 +147,7 @@ ID_declaration: ID {
                                         addvarINFO($1,var_offset,cur_scope,VAR_TYPE,INT);
                                         popstack("$r0");
                                         fprintf(as,"addi $sp,$sp,-4\n");
-                                        fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1));
+                                        fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1,cur_scope));
                                          
                                        }
               // | ID Arr_declare Arr_init
@@ -210,7 +210,7 @@ INT_DOUBLE_ID: IN {
                   }
           // | DOU
           | ID {                  
-                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1));
+                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1,cur_scope));
                   pushstack("$r0");
                 }
           ;
@@ -232,18 +232,32 @@ expression: expression '+' expression { doexpression('+'); }
           | expression '*' expression { doexpression('*'); }
           | expression '/' expression { doexpression('/'); }
           | expression '%' expression { doexpression('%'); }
-          // | ID DP 
-          // | ID DM
+          | ID DP {
+                    fprintf(as,"lwi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                    pushstack("$r0");
+                    fprintf(as,"addi $r0, $r0, 1\n");
+                    fprintf(as,"swi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                  } 
+          | ID DM {
+                    fprintf(as,"lwi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                    pushstack("$r0");
+                    fprintf(as,"addi $r0, $r0, -1\n");
+                    fprintf(as,"swi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                  } 
           | expression COMP expression {docomparation($2);}
           // | expression LOR expression {doexpression($2);}
           // | expression LAND expression {doexpression($2);}
           | '(' expression ')'
           | ID {
-                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1));
+                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1,cur_scope));
                   pushstack("$r0");
                }
           | NUM 
-          | '-' expression %prec unary
+          | '-' expression %prec unary {
+                                          fprintf(as,"movi $r0, -1\n");
+                                          pushstack("$r0");
+                                          doexpression('*');
+                                       }
           | '!' expression {
                               popstack("$r0");
                               fprintf(as,"bnez $r0, .L%d\n", labelcount);
@@ -264,7 +278,7 @@ init_expression: init_expression '+' init_expression {doexpression('+');}
           // | init_expression LAND init_expression {doexpression($2);}
           | '(' init_expression ')'
           | ID {
-                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1));
+                  fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1,cur_scope));
                   pushstack("$r0");
                }
           | NUM 
