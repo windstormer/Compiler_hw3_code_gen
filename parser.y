@@ -4,11 +4,16 @@
 #include <string.h>
 #include "symboltable.h"
 
+
 extern int lineCount;
 extern char lastsentence[3000];
 extern char* yytext;
 int labelcount=0;
+int paralist[2048];
+int paralist_n=0;
 
+
+int parause_n=0;
 %}
 %start program
 
@@ -33,6 +38,7 @@ int labelcount=0;
 %token <textval> DIGWRITE DELAY HIGH LOW
 
 
+
 %left LOR
 %left LAND
 %nonassoc '!'
@@ -43,7 +49,7 @@ int labelcount=0;
 %left DP DM
 %left '[' ']'
 
-// %type <intval> INT_DOUBLE_ID
+%type <textval> function_head
 
 %%
 program: global program
@@ -53,34 +59,53 @@ program: global program
 
 global: declaration ';'
       | const_declaration ';'
-      | function_use '{' local_S '}'
+      | function_head global_left_c local_S global_right_c {checkrtntype($1,cur_scope);cleanscopeSTEntry(cur_scope);}
       ;
 
-local_S: local_S local
-       | local
+global_left_c: '{' {cur_scope++;}
+             ;
+global_right_c: '}' {cur_scope--;}
+              ;
+
+local_S: local_declares local_use
+       | local_use
+       | local_declares
+       |
        ;
 
-local: declaration ';'
+local_declares: local_declares local_declare
+              | local_declare
+              ;
+local_use: local_use local
+         | local
+         ;
+local_declare: declaration ';'
      | const_declaration ';'
-     | normal_use ';'
+     ;
+
+local: normal_use ';'
      | digwrite ';'
      | delay ';'
      | RETURN expression ';' {popstack("$r0");}
+     | BREAK ';'
+     | CONTINUE ';'
      | left_c local_S right_c
-     | IF '(' expression ')' left_c local_S right_c {
+     | IF '(' expression small_right_c left_c local_S right_c {
                                                       fprintf(as,".L%d:\n",labelcount);
                                                       labelcount++;
                                                     }
-     | IF '(' expression ')' left_c local_S if_right_c ELSE left_c local_S right_c {
+     | IF '(' expression small_right_c left_c local_S if_right_c ELSE left_c local_S right_c {
                                                                                       fprintf(as,".L%d:\n",labelcount+1);
                                                                                       labelcount+=2;
                                                                                    }
-     | WHILE while_left_c expression ')' left_c local_S right_c {
+     | WHILE while_left_c expression small_right_c left_c local_S right_c {
                                                               fprintf(as,"j .L%d\n", labelcount+1);
                                                               fprintf(as,".L%d:\n", labelcount);
                                                               labelcount+=2;
                                                              }
      ;
+small_right_c: ')' 
+             ;
 while_left_c: '(' {fprintf(as,".L%d:\n", labelcount+1); } 
             ;
 if_right_c: '}' {
@@ -116,22 +141,36 @@ high_low: HIGH {fprintf(as, "movi $r1, 1\n");}
         ;
 
 //////////use//////////////////////
-function_use: TYPE ID '(' para ')' {cur_scope++;}
-            | VOI ID '(' para ')' {cur_scope--;}
+function_head: TYPE ID '(' para ')' {
+                                      cur_scope++;
+                                      addvarINFO($2,var_offset,cur_scope,FUNC_TYPE,UNKNOWN,NORMAL);
+                                      updateSTtype($1);
+                                      strcpy($$,$2);
+                                      addparatoST($2,cur_scope,paralist,paralist_n);
+                                      paralist_n=0;
+                                    }
+            | VOI ID '(' para ')' {
+                                    cur_scope--;
+                                    addvarINFO($2,var_offset,cur_scope,FUNC_TYPE,VOID,NORMAL);
+                                    strcpy($$,$2);
+                                    addparatoST($2,cur_scope,paralist,paralist_n);
+                                    paralist_n=0;
+                                  }
             ;
 
 normal_use: ID '=' expression { 
                                 popstack("$r0");
                                 fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1,cur_scope)); 
+                                poptypestack();
                               }
           // | ID Arr_use '=' expression
-          | expression
+          | expression 
           ;
 
 ///////declaration///////////////////////
 
-declaration: TYPE lots_of_ID_declaration
-           | VOI lots_of_func_declare
+declaration: TYPE lots_of_ID_declaration {updateSTtype($1);}
+           | VOI lots_of_func_declare {updateSTtype($1);}
            ;                    
 
 lots_of_ID_declaration: ID_declaration ',' lots_of_ID_declaration
@@ -140,28 +179,28 @@ lots_of_ID_declaration: ID_declaration ',' lots_of_ID_declaration
 
 ID_declaration: ID {
                     fprintf(as,"addi $sp,$sp,-4\n");
-                    addvarINFO($1,var_offset,cur_scope,VAR_TYPE,INT);
+                    addvarINFO($1,var_offset,cur_scope,VAR_TYPE,UNKNOWN,NORMAL);
                    }
               | ID '=' init_expression {
                                           // fprintf(as,"ID=%s\n",$1);
-                                        addvarINFO($1,var_offset,cur_scope,VAR_TYPE,INT);
+                                        addvarINFO($1,var_offset,cur_scope,VAR_TYPE,UNKNOWN,NORMAL);
                                         popstack("$r0");
                                         fprintf(as,"addi $sp,$sp,-4\n");
                                         fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1,cur_scope));
-                                         
+                                        poptypestack();
                                        }
               // | ID Arr_declare Arr_init
               | func_declar
               ;
 ///////////////////////const//////////////////////
-const_declaration: CONS TYPE const_lots_of_ID_declaration
+const_declaration: CONS TYPE const_lots_of_ID_declaration {updateSTtype($2);}
                  ;
 
 const_lots_of_ID_declaration: const_ID_declaration ',' const_lots_of_ID_declaration
                             | const_ID_declaration
                             ;
 
-const_ID_declaration: ID '=' NUM
+const_ID_declaration: ID '=' NUM {addvarINFO($1,var_offset,cur_scope,VAR_TYPE,UNKNOWN,CONST);}
                     ;                  
 
 //////////////////////////function////////////////////
@@ -170,7 +209,11 @@ lots_of_func_declare: func_declar ',' lots_of_func_declare
                     | func_declar
                     ;
 
-func_declar: ID '(' para ')'
+func_declar: ID '(' para ')' {
+                                addvarINFO($1,var_offset,cur_scope,FUNC_TYPE,UNKNOWN,NORMAL);
+                                addparatoST($1,cur_scope,paralist,paralist_n);
+                                paralist_n=0;
+                             } 
            ;
 
 para: para_style ',' para
@@ -178,10 +221,15 @@ para: para_style ',' para
     | 
     ;
 
-para_style: TYPE ID
+para_style: TYPE ID {paralist[paralist_n++]=which_type($1);}
           // | TYPE ID Arr_declare
           ;
-
+func_invocation: ID '(' no_or_more_expression ')' {
+                                                    comparepara($1,cur_scope,parause_n);
+                                                    pushtypestack(typeofid($1,cur_scope));
+                                                    parause_n=0;
+                                                  }
+               ;
 ////////////////////////////////////
 
 // Arr_use: '[' expression ']'
@@ -196,10 +244,10 @@ para_style: TYPE ID
 //         | 
 //         ;  
 ///////////////Value select//////////////   
-NUM: IN {pushtostack($1);}
-   // | DOU 
-   // | TF
-   // | CHA
+NUM: IN {pushtostack($1);pushtypestack(INT);}
+   | DOU {pushtypestack(DOUBLE);}
+   | TF {pushtypestack(BOOL);}
+   | CHA {pushtypestack(CHAR);}
    // | STR
    // | NUL
    ;
@@ -220,18 +268,20 @@ INT_DOUBLE_ID: IN {
 //         ;
 
 ///////////////expression////////////////
-// no_or_more_expression: lots_of_expression
-//                      |
-//                      ;
-// lots_of_expression: expression ',' lots_of_expression
-//                   | expression
-//                   ;  
+no_or_more_expression: lots_of_expression
+                     |
+                     ;
+lots_of_expression: function_expression ',' lots_of_expression 
+                  | function_expression
+                  ;
+function_expression: expression {parause_n++;}
+                   ;  
 
-expression: expression '+' expression { doexpression('+'); }
-          | expression '-' expression { doexpression('-'); }
-          | expression '*' expression { doexpression('*'); }
-          | expression '/' expression { doexpression('/'); }
-          | expression '%' expression { doexpression('%'); }
+expression: expression '+' expression { doexpression('+'); checkexptype();}
+          | expression '-' expression { doexpression('-'); checkexptype();}
+          | expression '*' expression { doexpression('*'); checkexptype();}
+          | expression '/' expression { doexpression('/'); checkexptype();}
+          | expression '%' expression { doexpression('%'); checkexptype();}
           | ID DP {
                     fprintf(as,"lwi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
                     pushstack("$r0");
@@ -244,13 +294,14 @@ expression: expression '+' expression { doexpression('+'); }
                     fprintf(as,"addi $r0, $r0, -1\n");
                     fprintf(as,"swi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
                   } 
-          | expression COMP expression {docomparation($2);}
+          | expression COMP expression {docomparation($2); checkexptype();}
           // | expression LOR expression {doexpression($2);}
           // | expression LAND expression {doexpression($2);}
           | '(' expression ')'
           | ID {
                   fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1,cur_scope));
                   pushstack("$r0");
+                  pushtypestack(typeofid($1,cur_scope));
                }
           | NUM 
           | '-' expression %prec unary {
@@ -263,28 +314,45 @@ expression: expression '+' expression { doexpression('+'); }
                               fprintf(as,"bnez $r0, .L%d\n", labelcount);
                            }
           // | ID Arr_use
-          // | func_invocation
+          | func_invocation
           ;
 
-init_expression: init_expression '+' init_expression {doexpression('+');}
-          | init_expression '-' init_expression {doexpression('-');}
-          | init_expression '*' init_expression {doexpression('*');}
-          | init_expression '/' init_expression {doexpression('/');}
-          | init_expression '%' init_expression {doexpression('%');}
-          // | ID DP
-          // | ID DM
-          // | init_expression COMP init_expression {docomparation($2);}
+init_expression: init_expression '+' init_expression { doexpression('+'); checkexptype();}
+          | init_expression '-' init_expression { doexpression('-'); checkexptype();}
+          | init_expression '*' init_expression { doexpression('*'); checkexptype();}
+          | init_expression '/' init_expression { doexpression('/'); checkexptype();}
+          | init_expression '%' init_expression { doexpression('%'); checkexptype();}
+          | ID DP {
+                    fprintf(as,"lwi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                    pushstack("$r0");
+                    fprintf(as,"addi $r0, $r0, 1\n");
+                    fprintf(as,"swi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                  } 
+          | ID DM {
+                    fprintf(as,"lwi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                    pushstack("$r0");
+                    fprintf(as,"addi $r0, $r0, -1\n");
+                    fprintf(as,"swi $r0, [$fp+(%d)]\n", findST($1,cur_scope));
+                  } 
+          | init_expression COMP init_expression {docomparation($2); checkexptype();}
           // | init_expression LOR init_expression {doexpression($2);}
           // | init_expression LAND init_expression {doexpression($2);}
           | '(' init_expression ')'
           | ID {
                   fprintf(as,"lwi $r0, [$fp+(%d)]\n",findST($1,cur_scope));
                   pushstack("$r0");
+                  pushtypestack(typeofid($1,cur_scope));
                }
           | NUM 
-          | '-' expression %prec unary
-          // | '!' init_expression
-          // | ID Arr_use
+          | '-' init_expression %prec unary {
+                                          fprintf(as,"movi $r0, -1\n");
+                                          pushstack("$r0");
+                                          doexpression('*');
+                                       }
+          | '!' init_expression {
+                              popstack("$r0");
+                              fprintf(as,"bnez $r0, .L%d\n", labelcount);
+                           }
           ;
 
 %%
