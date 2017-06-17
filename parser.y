@@ -11,7 +11,7 @@ extern char* yytext;
 int labelcount=0;
 int paralist[2048];
 int paralist_n=0;
-
+int returnflag=0;
 
 int parause_n=0;
 %}
@@ -59,14 +59,25 @@ program: global program
 
 global: declaration ';'
       | const_declaration ';'
-      | function_head global_left_c local_S global_right_c {checkrtntype($1,cur_scope);cleanscopeSTEntry(cur_scope);}
+      | function_head '{' local_S global_right_c {
+                                                   if(typeofid($1,cur_scope)==VOID)
+                                                    {
+                                                      if(returnflag==1)
+                                                      yyerror("shouldn't have return value");
+                                                    }
+                                                    else
+                                                    {
+                                                      if(returnflag==0)
+                                                        yyerror("should have return value");
+                                                      checkrtntype($1,cur_scope);
+                                                    }
+                                                    returnflag=0;
+
+                                                 }
       ;
 
-global_left_c: '{' {cur_scope++;}
-             ;
-global_right_c: '}' {cur_scope--;}
+global_right_c: '}' {cleanscopeSTEntry(cur_scope);cur_scope--;}
               ;
-
 local_S: local_declares local_use
        | local_use
        | local_declares
@@ -86,26 +97,24 @@ local_declare: declaration ';'
 local: normal_use ';'
      | digwrite ';'
      | delay ';'
-     | RETURN expression ';' {popstack("$r0");}
+     | RETURN expression ';' {popstack("$r0");returnflag=1;}
      | BREAK ';'
      | CONTINUE ';'
      | left_c local_S right_c
-     | IF '(' expression small_right_c left_c local_S right_c {
+     | IF '(' expression ')' left_c local_S right_c {
                                                       fprintf(as,".L%d:\n",labelcount);
                                                       labelcount++;
                                                     }
-     | IF '(' expression small_right_c left_c local_S if_right_c ELSE left_c local_S right_c {
+     | IF '(' expression ')' left_c local_S if_right_c ELSE left_c local_S right_c {
                                                                                       fprintf(as,".L%d:\n",labelcount+1);
                                                                                       labelcount+=2;
                                                                                    }
-     | WHILE while_left_c expression small_right_c left_c local_S right_c {
+     | WHILE while_left_c expression ')' left_c local_S right_c {
                                                               fprintf(as,"j .L%d\n", labelcount+1);
                                                               fprintf(as,".L%d:\n", labelcount);
                                                               labelcount+=2;
                                                              }
      ;
-small_right_c: ')' 
-             ;
 while_left_c: '(' {fprintf(as,".L%d:\n", labelcount+1); } 
             ;
 if_right_c: '}' {
@@ -141,23 +150,24 @@ high_low: HIGH {fprintf(as, "movi $r1, 1\n");}
         ;
 
 //////////use//////////////////////
-function_head: TYPE ID '(' para ')' {
-                                      cur_scope++;
-                                      addvarINFO($2,var_offset,cur_scope,FUNC_TYPE,UNKNOWN,NORMAL);
+function_head: TYPE ID left_small_c para right_small_c {
+                                      addvarINFO($2,var_offset,cur_scope-1,FUNC_TYPE,UNKNOWN,NORMAL);
                                       updateSTtype($1);
                                       strcpy($$,$2);
-                                      addparatoST($2,cur_scope,paralist,paralist_n);
+                                      addparatoST($2,cur_scope-1,paralist,paralist_n);
                                       paralist_n=0;
                                     }
-            | VOI ID '(' para ')' {
-                                    cur_scope--;
-                                    addvarINFO($2,var_offset,cur_scope,FUNC_TYPE,VOID,NORMAL);
+            | VOI ID left_small_c para right_small_c {
+                                    addvarINFO($2,var_offset,cur_scope-1,FUNC_TYPE,VOID,NORMAL);
                                     strcpy($$,$2);
-                                    addparatoST($2,cur_scope,paralist,paralist_n);
+                                    addparatoST($2,cur_scope-1,paralist,paralist_n);
                                     paralist_n=0;
                                   }
             ;
-
+left_small_c: '(' {cur_scope++;}
+            ;            
+right_small_c: ')' 
+             ;
 normal_use: ID '=' expression { 
                                 popstack("$r0");
                                 fprintf(as,"swi $r0, [$fp+(%d)]\n",findST($1,cur_scope)); 
@@ -209,20 +219,30 @@ lots_of_func_declare: func_declar ',' lots_of_func_declare
                     | func_declar
                     ;
 
-func_declar: ID '(' para ')' {
+func_declar: ID left_small_c para right_small_c {
+                                int count=cleanscopeSTEntry(cur_scope);
+                                cur_scope--;
                                 addvarINFO($1,var_offset,cur_scope,FUNC_TYPE,UNKNOWN,NORMAL);
                                 addparatoST($1,cur_scope,paralist,paralist_n);
                                 paralist_n=0;
                              } 
-           ;
+                              ;
 
 para: para_style ',' para
     | para_style
     | 
     ;
 
-para_style: TYPE ID {paralist[paralist_n++]=which_type($1);}
-          // | TYPE ID Arr_declare
+para_style: TYPE ID {
+                      paralist[paralist_n++]=which_type($1);
+                      addvarINFO($2,var_offset,cur_scope,VAR_TYPE,UNKNOWN,NORMAL);
+                      updateSTtype($1);
+                    }
+          | CONS TYPE ID {
+                      paralist[paralist_n++]=which_type($2);
+                      addvarINFO($2,var_offset,cur_scope,VAR_TYPE,UNKNOWN,CONST);
+                      updateSTtype($2);
+                    }
           ;
 func_invocation: ID '(' no_or_more_expression ')' {
                                                     comparepara($1,cur_scope,parause_n);

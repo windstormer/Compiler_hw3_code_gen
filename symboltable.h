@@ -50,6 +50,17 @@ void popstack(char * target)
 }
 
 /////////////////////tool/////////////////////////////
+void printST()
+{
+	printf("\n============================ST===========================\n");
+	int i=0;
+	for(i=0;i<curST_size;i++)
+	{
+		printf("| id:%s   | scope:%d | type: %d | var_type:%d |\n",ST[i].id,ST[i].scope,ST[i].type,ST[i].var_type);
+	}
+	printf("=========================================================\n");
+}
+
 
 int* intarraycopy(int* src, int len)
 {
@@ -109,15 +120,14 @@ void printtypestackinfo(char * info)
 int findST(char* id,int scope)
 {
   SymbolEntry *target = searchST(id,scope);
-  if(target->bconst==CONST) yyerror("can't override constant variable");
   if(target==NULL) yyerror("can't find in ST");
+   if(target->bconst==CONST) yyerror("can't override constant variable");
   return target->offset;
 }
 int existinSTEntry(char *id,int scope){
 	int i=0;
   for(i=0;i<curST_size;i++)
   {
-  	    	 // fprintf(as,"check:%s,%s\n",id,ST[i].id);
     if(strcmp(id,ST[i].id)==0&&scope==ST[i].scope)
     {
     	return 1;
@@ -128,10 +138,20 @@ int existinSTEntry(char *id,int scope){
 
 SymbolEntry* findnewSTEntry()
 {
+	int i=0;
+	for(i=0;i<curST_size;i++)
+	{
+		if(ST[i].id[0]=='\0')
+		{
+			var_offset-=4;
+			return &ST[i];
+		}
+	}
   if(curST_size==MAX_ST_SIZE)
     {
       yyerror("ST is full!");
     }
+
   curST_size++;
   var_offset-=4;
   return &ST[curST_size-1];
@@ -149,14 +169,13 @@ void addvarINFO(char* id,int offset,int scope,int type,int var_type,int bconst){
 }
 void cleanSTEntry(int index)
 {
-  SymbolEntry se = ST[curST_size];
-  se.id[0]='\0';
-  se.offset=0;
-  se.scope=0;
-  se.type=0;
-  se.var_type=0;
-  se.para_count=0;
-  curST_size--;
+  SymbolEntry* se = &ST[index];
+  se->id[0]='\0';
+  se->offset=0;
+  se->scope=0;
+  se->type=0;
+  se->var_type=0;
+  se->para_count=0;
 }
 
 int cleanscopeSTEntry(int scope)
@@ -165,8 +184,9 @@ int cleanscopeSTEntry(int scope)
 	int count=0;
 	for(i=curST_size-1;i>=0;i--)
 	{
-		if(ST[i].scope==scope)
+		if(ST[i].scope==scope&&ST[i].type==VAR_TYPE)
 		{
+
 			count++;
 			cleanSTEntry(i);
 		}
@@ -198,7 +218,7 @@ int typeofid(char *id, int scope)
 void checkrtntype(char* id,int scope)
 {
 	int idtype = typeofid(id,scope);
-	if(idtype==VOID) return;
+	if(idtype==VOID) yyerror("should not return value");
 	int returntype = poptypestack();
 	if(returntype!=idtype) yyerror("return value with wrong type");
 }
@@ -206,7 +226,7 @@ void checkrtntype(char* id,int scope)
 void pushtypestack(int type)
 {
 	typestack[typestackhead++]=type;
-	printtypestackinfo("push");
+	// printtypestackinfo("push");
 }
 
 int poptypestack()
@@ -214,7 +234,7 @@ int poptypestack()
 	int type;
 	if(typestackhead>0)
 		type=typestack[--typestackhead];
-	printtypestackinfo("pop");
+	// printtypestackinfo("pop");
 	return type;
 }
 
